@@ -54,7 +54,7 @@ MODELS: Dict[str, ModelInfo] = {
 def _download_file(url: str, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    with requests.get(url, stream=True, timeout=60) as response:
+    with requests.get(url, stream=True, timeout=300) as response:
         response.raise_for_status()
         with target.open("wb") as file:
             for chunk in response.iter_content(chunk_size=8192):
