@@ -51,73 +51,16 @@ MODELS: Dict[str, ModelInfo] = {
 }
 
 
-import threading
-import requests
+import subprocess
 from pathlib import Path
 
-
-def _download_file(url: str, target: Path, workers: int = 8) -> None:
+def _download_file(url: str, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-
-    # Check if server supports range requests
-    head = requests.head(url, timeout=30)
-    content_length = int(head.headers.get("Content-Length", 0))
-    accept_ranges = head.headers.get("Accept-Ranges", "none")
-
-    if not content_length or accept_ranges == "none":
-        # Fallback: single-threaded stream
-        _download_single(url, target)
-        return
-
-    # Split file into chunks and download in parallel
-    chunk_size = content_length // workers
-    ranges = [
-        (i * chunk_size, (i + 1) * chunk_size - 1 if i < workers - 1 else content_length - 1)
-        for i in range(workers)
-    ]
-
-    parts: dict[int, bytes] = {}
-    errors: list[Exception] = []
-    lock = threading.Lock()
-
-    def fetch(idx: int, start: int, end: int) -> None:
-        try:
-            resp = requests.get(
-                url,
-                headers={"Range": f"bytes={start}-{end}"},
-                timeout=600,
-            )
-            resp.raise_for_status()
-            with lock:
-                parts[idx] = resp.content
-        except Exception as e:
-            with lock:
-                errors.append(e)
-
-    threads = [
-        threading.Thread(target=fetch, args=(i, s, e))
-        for i, (s, e) in enumerate(ranges)
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    if errors:
-        raise errors[0]
-
-    with target.open("wb") as f:
-        for i in range(workers):
-            f.write(parts[i])
-
-
-def _download_single(url: str, target: Path) -> None:
-    with requests.get(url, stream=True, timeout=600) as response:
-        response.raise_for_status()
-        with target.open("wb") as f:
-            for chunk in response.iter_content(chunk_size=65536):  # 64KB vs 8KB
-                if chunk:
-                    f.write(chunk)
+    subprocess.run(
+        ["wget", "-q", "--tries=3", "--compression=auto",
+        "--no-http-keep-alive", "-O", str(target), url],
+        check=True,
+    )
 
 
 def ensure_models(base_dir: str | Path = ".") -> None:
