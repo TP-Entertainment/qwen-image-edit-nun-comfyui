@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import queue
+import threading
 import hashlib
 import logging
 import subprocess
@@ -14,12 +16,24 @@ class ModelInfo(TypedDict):
     checksum: str
 
 
-def file_checksum(path):
-    logging.info(f"Calculating checksum for {path}...")
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
+
+def file_checksum(path, chunk_size=1 << 23):
+    q = queue.Queue(maxsize=4)  # buffer tối đa 4 chunk (~32MB RAM)
+
+    def reader():
+        with open(path, "rb", buffering=0) as f:
+            for chunk in iter(lambda: f.read(chunk_size), b""):
+                q.put(chunk)
+        q.put(None)  # sentinel
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+
+    h = hashlib.sha256(usedforsecurity=False)
+    while (chunk := q.get()) is not None:
+        h.update(chunk)
+
+    t.join()
     return h.hexdigest()
 
 MODELS: Dict[str, ModelInfo] = {
